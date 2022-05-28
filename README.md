@@ -1,3 +1,5 @@
+![banner blog](https://user-images.githubusercontent.com/37406978/170845930-626db362-546a-41d4-b1fd-79139715bd38.png)
+
 # Professor-Braille
 Trabalho de Conclusão de Curso - Engenharia de Computação
 
@@ -10,3 +12,5 @@ Este trabalho teve por objetivo desenvolver uma ferramenta prototípica que auxi
 <br/>Orientador
 
 Acesse: https://revistatecie.crea-pr.org.br/index.php/revista/article/view/785
+
+![professorbraillle](https://user-images.githubusercontent.com/37406978/170845816-296d9974-121f-4c35-8d79-815a2fd25030.jpg)
