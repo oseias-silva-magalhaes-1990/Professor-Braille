@@ -1,568 +1,545 @@
-int bobsup[] = {8, 9, 10, 11, 12, 13};//Definição dos pinos para as bobinas superiores
-int bobinf[] = {2, 3, 4, 5, 6, 7};//Definição dos pinos para as bobinas inferiores
-int botao[] = {A0, A1, A2, A3, A4};//Definição do pinos para os botões:(incrementa,decrementa,Letras,Números,Simbolos)
-int botaoPressionado[] = {0, 0, 0, 0, 0}; //Botão pressionado quando for 1 e não pressionado quando for 0(zero) e cada posição controla inc, dec, let, num e sim
-int anterior[] = {0, 0, 0, 0, 0}; //Estado anterior do botão inc, dec, let, num e sim
-boolean botLigado[] = {false, false, false}; //Se botão está ligado recebe true senão false cada posição controla let, num e sim
-boolean zerou = false;//Abaixa todos os pinos
-boolean mostrou = false;//Informa se o caractere foi mostrado para desligamento das bobinas
-int cont = 0;//Contador para incrementar e decrementar os valores referents a cada caractere
+//ESP-8266 NodeMCU 1.0
+#include <Bounce2.h>//Leitura dos botões incremento e decremento
+#include "FirebaseESP8266.h"//Conexão com banco de dados firebase
+#include <ESP8266WiFi.h>//Conexão wifi
+//lib necessária para conectar o wifi
+#include <WiFiUdp.h>//Biblioteca do UDP.
+#include <WiFiManager.h>
 
-void setup() {//Definição das entradas e saídas
-  for (int i = 0; i < 6; i++) {//Laço define as bobinas como saídas e botões como entradas
-    pinMode(bobsup[i], OUTPUT);//Bobina superior como saída
-    pinMode(bobinf[i], OUTPUT);//Bobina inferior como saída
-    if (i < 5) {
-      pinMode(botao[i], INPUT);}//Botões como entradas
-  }Serial.begin(9600); //Porta serial com leitura de 9600bauds/s
+#define FIREBASE_HOST "https://professorbrai-6a82f.firebaseio.com" //databaseURL fornecido pelo Firebase
+#define FIREBASE_AUTH "HyY2lpqPVITY94sxJK***********************"
+
+#define botao A0  //Botões de escolha Alfabeto, Números e Símbolos
+#define inc 15   //Botão Incremento
+#define dec 13   //Botão Decremento
+
+Bounce debouncer1 = Bounce();//Botão incremento
+Bounce debouncer2 = Bounce();//Botão decremento
+
+int pino[] = {2, 16, 5, 4, 14, 12};//Pinos: 1,2,3,4,5,6
+
+int opcao;//1-Alfabeto, 2-Numero, 3-Simbolo
+int valor;//Armazena o valor lido na entrada analógica
+int cont=0;//Contador para incremento e decremento
+//Caracteres utilizados
+char letras[50] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '.', ',', ';', ':', '/', '?', '!', '@', '#', '+', '-', '*', 'a', 'f', 'p', '<', '>', '(', ')', 'C', '_', 'E', 'L', 'N'};
+//Define FirebaseESP8266 data objects
+FirebaseData firebaseDado;
+
+void conectaWifi() {
+  //Conecta wifi
+  //Serial.println("");
+  //Serial.println("Conectando...");
+  WiFi.mode(WIFI_STA);
+  //WiFiManager
+  //Depois de configurado a primeira vez o acesso ao WiFi e automatica
+  WiFiManager gerenciadorWiFi;
+  gerenciadorWiFi.setDebugOutput(false);
+  if (!gerenciadorWiFi.autoConnect("Professor Braille")) {
+    Serial.println("Falha na conexão com a WiFi");
+    //reseta o ESP e tenta novamente
+    ESP.restart();
+    delay(1000);
+  }
+  //Mostra IP do servidor
+  Serial.println();
+  Serial.println("WiFi conectado");
+  Serial.print("Endereço IP: ");
+  Serial.println(WiFi.localIP());
+  Serial.println("Use este endereço para conectar ao dispositivo");
+  Serial.println();
 }
 
-void loop() {//Looping de cada ciclo do processador
-  for (int i = 0; i < 5; i++) {//Laço para a leitura dos botões
-    botaoPressionado[i] = digitalRead(botao[i]);}//Se o botão i for pressionado a variável botaoPressionado[i] recebe valor 1
-  ctrl_botoes();//Chama a função de controle dos botões de incremento e decremento
-  ctrl_bot_char();//Chama a função de controle dos botões para escolher mostrar letra, número ou símbolo
-  ctrl_letenum();//Chama a função de controle para mostrar letra ou número
-  ctrl_sim();//Chama a função de controle para mostrar símbolo
-}
-void ctrl_botoes() {
-//************controle do botao incrementa************
-  if ((anterior[0] == LOW) && (botaoPressionado[0] == HIGH)) {
-    cont++;//Incrementa o contador cont++
-    zerou = false;//Zerou deve receber false para zerar ultimo caractere mostrado
-    mostrou = false;//Mostrou recebe false para liberar ativação das bobinas superiores
-    Serial.print(cont);}//Pode-se verificar o valor do contador via porta serial
-  anterior[0] = botaoPressionado[0];//Passagem do valor atual do botão incremento
-  delay(50);//Aguarda 50 milissegundos para evitar saltos na leitura e passagem de valores
-//************controle do botao decrementa************
-  if ((anterior[1] == LOW) && (botaoPressionado[1] == HIGH)) {
-    cont--;//Decrementa o contador cont--
-    zerou = false; //Zerou deve receber false para zerar ultimo caractere mostrado
-    mostrou = false; //Mostrou recebe false para liberar ativação das bobinas superiores
-    Serial.print(cont);} //Pode-se verificar o valor do contador via porta serial
-  anterior[1] = botaoPressionado[1];
-  delay(50); //Aguarda 50 milissegundos para evitar saltos na leitura e passagem de valores
+
+void testaPinos(){
+  for(int i=0; i<6; i++){
+    digitalWrite(pino[i], LOW);
+    delay(100);
+    digitalWrite(pino[i], HIGH);
+    delay(100);
+  }
 }
 
-void ctrl_bot_char() {
-  if ((anterior[2] == LOW) && (botaoPressionado[2] == HIGH)) {//controle do botao letra
-    cont = 1;//Se botão alfabeto foi pressionado então contador sempre deverá receber 1 que equivale a primeira letra do alfabeto
-    zerou = false;//Deve-se zerar o ultimo caractere mostrado antes de mostrar o atual
-    mostrou = false;//Deve-se ativar as bobinas superiores para mostrar o caractere 
-    Serial.print(cont);//Informa via porta serial o valor de cont
-    botLigado[0] = true;//Informa que botão alfabeto esta ligado
-    botLigado[1] = false;//Informa que botão número está desligado
-    botLigado[2] = false;}//Informa que botão símbolo está desligado
-    anterior[2] = botaoPressionado[2];//Passa-se o valor atual do botaoPressionado para anterior para utilização posterior
-  if ((anterior[3] == LOW) && (botaoPressionado[3] == HIGH)) {//controle do botao numero
-    cont = 1;//cont deve receber 1 que é equivalente ao número 1 
-    zerou = false;//Deve-se zerar o ultimo caractere mostrado antes de mostrar o atual
-    mostrou = false;//Deve-se ativar as bobinas superiores para mostrar o caractere
-    Serial.print(cont); //Informa via porta serial o valor de cont
-    botLigado[0] = false;//Informa que o botão alfabeto está desligado
-    botLigado[1] = true;//Informa que o botão número está ligado
-    botLigado[2] = false;}//Informa que o botão símbolo está desligado
-    anterior[3] = botaoPressionado[3];//Passa-se o valor atual do botaoPressionado para anterior para utilização posterior
-  if ((anterior[4] == LOW) && (botaoPressionado[4] == HIGH)) {//controle do botao simbolo
-    cont = 27;//cont recebe 27 que é equivalente ao ponto(.) que é o primeiro símbolo a ser mostrado
-    zerou = false;//Deve-se zerar o ultimo caractere mostrado antes de mostrar o atual
-    mostrou = false;//Deve-se ativar as bobinas superiores para mostrar o caractere
-    Serial.print(cont);//Informa via porta serial o valor de cont
-    botLigado[0] = false;//Informa que o botão alfabeto está desligado
-    botLigado[1] = false;//Informa que o botão número está desligado 
-    botLigado[2] = true;}//Informa que o botão símbolo esta ligado
-  anterior[4] = botaoPressionado[4];//Passa-se o valor atual do botaoPressionado para anterior para utilização posterior
+void setup() {
+  Serial.begin(115200);
+
+  conectaWiFi();
+
+  Serial.println("CONECTANDO FIREBASE...");
+  //Inicia a conexão com o Firebase
+  Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
+  Firebase.reconnectWiFi(true);
+  Serial.println("FIREBASE CONECTADO COM SUCESSO");
+  
+  debouncer1.attach(inc, INPUT_PULLUP); // Attach the debouncer to a BOB with INPUT_PULLUP mode
+  debouncer1.interval(25); // Use a debounce interval of 25 milliseconds
+  debouncer2.attach(dec, INPUT_PULLUP);
+  debouncer2.interval(25); // Use a debounce interval of 25 milliseconds
+  
+  pinMode(botao, INPUT);   //Botão para a escolha de alfabeto número e símbolo
+  //Pino para o controle lógico dos atuadores
+  for(int i=0; i<6; i++){
+    pinMode(pino[i], OUTPUT);   //Definindo pinos como saída
+    digitalWrite(pino[i], HIGH);//Definindo pinos em nível alto como desligado
+  }
+  Firebase.setString(firebaseDado,"opcao", "");
+  Firebase.setString(firebaseDado,"caractere", "");
+  Firebase.setInt(firebaseDado,"contador", 0);
+  testaPinos();
 }
 
-void ctrl_letenum() {//Controle de letra e numero
-  if (botLigado[0] || botLigado[1]) {//Verifica condicional de letra ou numero
-    if (cont < 1 && botLigado[0]) {//Gira da primeira para a ultima letra
-      cont = 26;}
-    if (cont > 26 && botLigado[0]) {//Gira da ultima para a primeira letra                    cont = 1 ;}
-    if (cont < 1 && botLigado[1]) {//Gira do primeiro numero para o ultimo
-      cont = 0;}
-    if (cont > 0 && botLigado[1]) {//Gira do ultimo numero para o primeiro
-      cont = 1 ;}
-    if (!zerou) {//Sequência para abaixar todos os pinos
-      for (int i = 0; i < 6; i++) {
-        digitalWrite(bobinf[i], HIGH);}//Ativa as bobinas inferiores
-      delay(100);//Agurada 100 milissegundos
-      for (int i = 0; i < 6; i++) {
-        digitalWrite(bobinf[i], LOW);}//Desativa as bobinas inferiores
-      zerou = true;}//Confirma abaixamento dos pinos
-    if (!mostrou) {//Sequência para mostrar o caractere
-      switch (cont) {//Verifica valor de cont
-        case 1://Mostra letra “a” ou número “1”
-          digitalWrite(bobsup[0], HIGH);//Ativa bobina superior 1
-          delay(100);//Aguarda 100 milissegundos
-          digitalWrite(bobsup[0], LOW);//Desativa bobina superior 1
-          break;
-        case 2://Mostra letra “b” ou número “2”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[1], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[1], LOW);
-          break;
-        case 3://Mostra letra “c” ou número “3”
-          digitalWrite(bobsup[0], HIGH);//Ativa bobina superior 1
-          digitalWrite(bobsup[3], HIGH);//Ativa bobina superior 2
-          delay(100);//Aguarda 100 milissegundos
-          digitalWrite(bobsup[0], LOW);//Desativa bobina superior 1
-          digitalWrite(bobsup[3], LOW);//Desativa bobina superior 2
-          break;
-       //De maneira analoga os demais valores representarão uma sequência de caracteres a serem mostrados
-        case 4://Mostra a letra “d” ou número “4”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[3], HIGH);
-          digitalWrite(bobsup[4], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[3], LOW);
-          digitalWrite(bobsup[4], LOW);
-          break;
-        case 5://Mostra a letra “e” ou número “5”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[4], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[4], LOW);
-          break;
-        case 6://Mostra a letra “f” ou número “6”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[1], HIGH);
-          digitalWrite(bobsup[3], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[1], LOW);
-          digitalWrite(bobsup[3], LOW);
-          break;
-        case 7://Mostra letra “g” ou número “7”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[1], HIGH);
-          digitalWrite(bobsup[3], HIGH);
-          digitalWrite(bobsup[4], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[1], LOW);
-          digitalWrite(bobsup[3], LOW);
-          digitalWrite(bobsup[4], LOW);
-          break;
-        case 8://Mostra a letra “h” ou número “8”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[1], HIGH);
-          digitalWrite(bobsup[4], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[1], LOW);
-          digitalWrite(bobsup[4], LOW);
-          break;
-        case 9://Mostra a letra “i” ou número “9”
-          digitalWrite(bobsup[1], HIGH);
-          digitalWrite(bobsup[3], HIGH);
-          delay(100);
-          digitalWrite(bobsup[1], LOW);
-          digitalWrite(bobsup[3], LOW);
-          break;
-        case 10://Mostra a letra “j” ou número “0”
-          digitalWrite(bobsup[1], HIGH);
-          digitalWrite(bobsup[3], HIGH);
-          digitalWrite(bobsup[4], HIGH);
-          delay(100);
-          digitalWrite(bobsup[1], LOW);
-          digitalWrite(bobsup[3], LOW);
-          digitalWrite(bobsup[4], LOW);
-          break;
-        case 11://Mostra letra “k”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[2], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[2], LOW);
-          break;
-        case 12://Mostra letra “l”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[1], HIGH);
-          digitalWrite(bobsup[2], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[1], LOW);
-          digitalWrite(bobsup[2], LOW);
-          break;
-        case 13://Mostra letra “m”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[2], HIGH);
-          digitalWrite(bobsup[3], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[2], LOW);
-          digitalWrite(bobsup[3], LOW);
-          break;
-        case 14://Mostra letra “n”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[2], HIGH);
-          digitalWrite(bobsup[3], HIGH);
-          digitalWrite(bobsup[4], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[2], LOW);
-          digitalWrite(bobsup[3], LOW);
-          digitalWrite(bobsup[4], LOW);
-          break;
-        case 15://Mostra letra “o”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[2], HIGH);
-          digitalWrite(bobsup[4], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[2], LOW);
-          digitalWrite(bobsup[4], LOW);
-          break;
-        case 16://Mostra letra “p”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[1], HIGH);
-          digitalWrite(bobsup[2], HIGH);
-          digitalWrite(bobsup[3], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[1], LOW);
-          digitalWrite(bobsup[2], LOW);
-          digitalWrite(bobsup[3], LOW);
-          break;
-        case 17://Mostra letra “q”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[1], HIGH);
-          digitalWrite(bobsup[2], HIGH);
-          digitalWrite(bobsup[3], HIGH);
-          digitalWrite(bobsup[4], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[1], LOW);
-          digitalWrite(bobsup[2], LOW);
-          digitalWrite(bobsup[3], LOW);
-          digitalWrite(bobsup[4], LOW);
-          break;
-        case 18://Mostra letra “r”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[1], HIGH);
-          digitalWrite(bobsup[2], HIGH);
-          digitalWrite(bobsup[4], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[1], LOW);
-          digitalWrite(bobsup[2], LOW);
-          digitalWrite(bobsup[4], LOW);
-          break;
-        case 19://Mostra letra “s”
-          digitalWrite(bobsup[1], HIGH);
-          digitalWrite(bobsup[2], HIGH);
-          digitalWrite(bobsup[3], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[2], LOW);
-          digitalWrite(bobsup[3], LOW);
-          break;
-        case 20://Mostra letra “t”
-          digitalWrite(bobsup[1], HIGH);
-          digitalWrite(bobsup[2], HIGH);
-          digitalWrite(bobsup[3], HIGH);
-          digitalWrite(bobsup[4], HIGH);
-          delay(100);
-          digitalWrite(bobsup[1], LOW);
-          digitalWrite(bobsup[2], LOW);
-          digitalWrite(bobsup[3], LOW);
-          digitalWrite(bobsup[4], LOW);
-          break;
-        case 21://Mostra letra “u”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[2], HIGH);
-          digitalWrite(bobsup[5], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[2], LOW);
-          digitalWrite(bobsup[5], LOW);
-          break;
-        case 22://Mostra letra “v”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[1], HIGH);
-          digitalWrite(bobsup[2], HIGH);
-          digitalWrite(bobsup[5], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[1], LOW);
-          digitalWrite(bobsup[2], LOW);
-          digitalWrite(bobsup[5], LOW);
-          break;
-        case 23://Mostra letra “w”
-          digitalWrite(bobsup[1], HIGH);
-          digitalWrite(bobsup[3], HIGH);
-          digitalWrite(bobsup[4], HIGH);
-          digitalWrite(bobsup[5], HIGH);
-          delay(100);
-          digitalWrite(bobsup[1], LOW);
-          digitalWrite(bobsup[3], LOW);
-          digitalWrite(bobsup[4], LOW);
-          digitalWrite(bobsup[5], LOW);
-          break;
-        case 24://Mostra letra “x”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[2], HIGH);
-          digitalWrite(bobsup[3], HIGH);
-          digitalWrite(bobsup[5], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[2], LOW);
-          digitalWrite(bobsup[3], LOW);
-          digitalWrite(bobsup[5], LOW);
-          break;
-        case 25://Mostra letra “y”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[2], HIGH);
-          digitalWrite(bobsup[3], HIGH);
-          digitalWrite(bobsup[4], HIGH);
-          digitalWrite(bobsup[5], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[2], LOW);
-          digitalWrite(bobsup[3], LOW);
-          digitalWrite(bobsup[4], LOW);
-          digitalWrite(bobsup[5], LOW);
-          break;
-        case 26://Mostra letra “z”
-          digitalWrite(bobsup[0], HIGH);
-          digitalWrite(bobsup[2], HIGH);
-          digitalWrite(bobsup[4], HIGH);
-          digitalWrite(bobsup[5], HIGH);
-          delay(100);
-          digitalWrite(bobsup[0], LOW);
-          digitalWrite(bobsup[2], LOW);
-          digitalWrite(bobsup[4], LOW);
-          digitalWrite(bobsup[5], LOW);
-          break;
-        default:
-          cont = 0;//Para qualquer valor diferente do esperado cont recebe 0 e abaixa todos os piinos
-      } mostrou = true;//Informa que foi mostrado o caractere esperado
+void loop() {
+  valor = analogRead(botao);
+  delay(25);
+  verificaBotao();
+  debouncer1.update(); // Realiza leitura do botão incrmento
+  debouncer2.update(); // Realiza leitura do botão decremento
+  controleIncDec();    //Incrementa os valores dentro da opção escolhida
+}
+
+void verificaOpcao(){
+  String op = lerValorFirebase("opcao");
+  for(int i=0; i<3; i++){
+    if (op.charAt(i) == 'a'){
+      opcao = 1;
+    }
+    if (op.charAt(i) == 'n'){
+      opcao = 2;
+    }
+    if (op.charAt(i) == 's'){
+      opcao = 3;
     }
   }
 }
 
-void ctrl_sim() {//Controle de símbolo de pontuação textual
-  if (botLigado[2] == true) {//Gira do primeiro simbolo para o último
-    if (cont < 27) {
-      cont = 50;}
-    if (!zerou) {//Laço para zerar o último valor mostrado
-      for (int i = 0; i < 6; i++) {
-        digitalWrite(bobinf[i], HIGH);}//Ativa as bobinas inferiores
-      delay(100);//Aguarda 100 milissegundos
-      for (int i = 0; i < 6; i++) {
-        digitalWrite(bobinf[i], LOW);}//Desativa as bobinas inferiores
-      zerou = true;}//Informa que zerou os pinos
-    switch (cont){//Lê variável cont
-      case 27://Mostra o símbolo ponto “.”
-        digitalWrite(bobsup[1], HIGH);    
-        digitalWrite(bobsup[4], HIGH);
-        digitalWrite(bobsup[5], HIGH);
-        delay(100);
-        digitalWrite(bobsup[1], LOW);
-        digitalWrite(bobsup[4], LOW);
-        digitalWrite(bobsup[5], LOW);
-        break;
-      case 28://Mostra o símbolo virgula “,”
-        digitalWrite(bobsup[1], HIGH);
-        delay(100);
-        digitalWrite(bobsup[1], LOW);
-        break;
-      case 29://Mostra o símbolo ponto e virgule “;”
-        digitalWrite(bobsup[1], HIGH);
-        digitalWrite(bobsup[2], HIGH);
-        delay(100);
-        digitalWrite(bobsup[1], LOW);
-        digitalWrite(bobsup[2], LOW);
-        break;
-      case 30://Mostra o símbolo dois pontos “:”
-        digitalWrite(bobsup[1], HIGH);
-        digitalWrite(bobsup[4], HIGH);
-        delay(100);
-        digitalWrite(bobsup[1], LOW);
-        digitalWrite(bobsup[4], LOW);
-        break;
-      case 31://Mostra o símbolo barra “/”
-        digitalWrite(bobsup[2], HIGH);
-        digitalWrite(bobsup[3], HIGH);
-        delay(100);
-        digitalWrite(bobsup[2], LOW);
-        digitalWrite(bobsup[3], LOW);
-        break;
-      case 32://Mostra o símbolo interrogação “?”
-        digitalWrite(bobsup[1], HIGH);
-        digitalWrite(bobsup[2], HIGH);
-        digitalWrite(bobsup[5], HIGH);
-        delay(100);
-        digitalWrite(bobsup[1], LOW);
-        digitalWrite(bobsup[2], LOW);
-        digitalWrite(bobsup[5], LOW);
-        break;
-      case 33://Mostra o símbolo exclamação “!”
-        digitalWrite(bobsup[1], HIGH);
-        digitalWrite(bobsup[2], HIGH);
-        digitalWrite(bobsup[4], HIGH);
-        delay(100);
-        digitalWrite(bobsup[1], LOW);
-        digitalWrite(bobsup[2], LOW);
-        digitalWrite(bobsup[4], LOW);
-        break;
-      case 34://Mostra o símbolo arroba “@”
-        digitalWrite(bobsup[2], HIGH);
-        digitalWrite(bobsup[3], HIGH);
-        digitalWrite(bobsup[4], HIGH);
-        delay(100);
-        digitalWrite(bobsup[2], LOW);
-        digitalWrite(bobsup[3], LOW);
-        digitalWrite(bobsup[4], LOW);
-        break;
-      case 35://Mostra o símbolo hashtag “#”
-        digitalWrite(bobsup[2], HIGH);
-        digitalWrite(bobsup[3], HIGH);
-        digitalWrite(bobsup[4], HIGH);
-        digitalWrite(bobsup[5], HIGH);
-        delay(100);
-        digitalWrite(bobsup[2], LOW);
-        digitalWrite(bobsup[3], LOW);
-        digitalWrite(bobsup[4], LOW);
-        digitalWrite(bobsup[5], LOW);
-        break;
-      case 36://Mostra o symbolo mais “+”
-        digitalWrite(bobsup[1], HIGH);
-        digitalWrite(bobsup[2], HIGH);
-        digitalWrite(bobsup[4], HIGH);
-        delay(100);
-        digitalWrite(bobsup[1], LOW);
-        digitalWrite(bobsup[2], LOW);
-        digitalWrite(bobsup[4], LOW);
-        break;
-      case 37://Mostra o símbolo menos “-“
-        digitalWrite(bobsup[1], HIGH);
-        digitalWrite(bobsup[4], HIGH);
-        delay(100);
-        digitalWrite(bobsup[1], LOW);
-        digitalWrite(bobsup[4], LOW);
-        break;
-      case 38://Mostra o símbolo asterisco “*”
-        digitalWrite(bobsup[2], HIGH);
-        digitalWrite(bobsup[4], HIGH);
-        delay(100);
-        digitalWrite(bobsup[2], LOW);
-        digitalWrite(bobsup[4], LOW);
-        break;
-      case 39://Mostra o símbolo abre aspas ““”
-        digitalWrite(bobsup[1], HIGH);
-        digitalWrite(bobsup[2], HIGH);
-        digitalWrite(bobsup[5], HIGH);
-        delay(100);
-        digitalWrite(bobsup[1], LOW);
-        digitalWrite(bobsup[2], LOW);
-        digitalWrite(bobsup[5], LOW);
-        break;
-      case 40://Mostra o símbolo fecha aspas “””
-        digitalWrite(bobsup[2], HIGH);
-        digitalWrite(bobsup[4], HIGH);
-        digitalWrite(bobsup[5], HIGH);
-        delay(100);
-        digitalWrite(bobsup[2], LOW);
-        digitalWrite(bobsup[4], LOW);
-        digitalWrite(bobsup[5], LOW);
-        break;
-      case 41://Mostra o símbolo plica “'”
-        digitalWrite(bobsup[2], HIGH);
-        delay(100);
-        digitalWrite(bobsup[2], LOW);
-        break;
-      case 42://Mostra o símbolo “<”
-        digitalWrite(bobsup[0], HIGH);
-        digitalWrite(bobsup[1], HIGH);
-        digitalWrite(bobsup[5], HIGH);
-        delay(100);
-        digitalWrite(bobsup[0], LOW);
-        digitalWrite(bobsup[1], LOW);
-        digitalWrite(bobsup[5], LOW);
-        break;
-      case 43://Mostra o símbolo “>”
-        digitalWrite(bobsup[2], HIGH);
-        digitalWrite(bobsup[3], HIGH);
-        digitalWrite(bobsup[4], HIGH);
-        delay(100);
-        digitalWrite(bobsup[2], LOW);
-        digitalWrite(bobsup[3], LOW);
-        digitalWrite(bobsup[4], LOW);
-        break;
-      case 44://Mostra o símbolo abre parênteses “(”
-        digitalWrite(bobsup[1], HIGH);
-        digitalWrite(bobsup[2], HIGH);
-        digitalWrite(bobsup[4], HIGH);
-        digitalWrite(bobsup[5], HIGH);
-        delay(100);
-        digitalWrite(bobsup[1], LOW);
-        digitalWrite(bobsup[2], LOW);
-        digitalWrite(bobsup[4], LOW);
-        digitalWrite(bobsup[5], LOW);
-        break;
-      case 45://Mostra o símbolo fecha parênteses “)”
-        digitalWrite(bobsup[1], HIGH);
-        digitalWrite(bobsup[2], HIGH);
-        digitalWrite(bobsup[4], HIGH);
-        digitalWrite(bobsup[5], HIGH);
-        delay(100);
-        digitalWrite(bobsup[1], LOW);
-        digitalWrite(bobsup[2], LOW);
-        digitalWrite(bobsup[4], LOW);
-        digitalWrite(bobsup[5], LOW);
-        break;
-      case 46://Mostra símbolo que representa sequência de letras maiúsculas “capital”
-        digitalWrite(bobsup[5], HIGH);
-        delay(1000);
-        digitalWrite(bobsup[5], LOW);
-        break;
-      case 47://Mostra símbolo anderline “_”
-        digitalWrite(bobsup[2], HIGH);
-        digitalWrite(bobsup[5], HIGH);
-        delay(100);
-        digitalWrite(bobsup[2], LOW);
-        digitalWrite(bobsup[5], LOW);
-        break;
-      case 48://Mostra o símbolo lógico  E “and”
-        digitalWrite(bobsup[0], HIGH);
-        digitalWrite(bobsup[1], HIGH);
-        digitalWrite(bobsup[2], HIGH);
-        digitalWrite(bobsup[3], HIGH);
-        digitalWrite(bobsup[5], HIGH);
-        delay(100);
-        digitalWrite(bobsup[0], LOW);
-        digitalWrite(bobsup[1], LOW);
-        digitalWrite(bobsup[2], LOW);
-        digitalWrite(bobsup[3], LOW);
-        digitalWrite(bobsup[5], LOW);
-        break;
-      case 49://Mostra símbolo que representa sequência de letras “letra”
-        digitalWrite(bobsup[4], HIGH);
-        digitalWrite(bobsup[5], HIGH);
-        delay(100);
-        digitalWrite(bobsup[4], LOW);
-        digitalWrite(bobsup[5], LOW);
-        break;
-      case 50://Mostra símbolo que representa sequência de números “numero”
-        digitalWrite(bobsup[2], HIGH);
-        digitalWrite(bobsup[3], HIGH);
-        digitalWrite(bobsup[4], HIGH);
-        digitalWrite(bobsup[5], HIGH);
-        delay(100);
-        digitalWrite(bobsup[2], LOW);
-        digitalWrite(bobsup[3], LOW);
-        digitalWrite(bobsup[4], LOW);
-        digitalWrite(bobsup[5], LOW);
-        break;
-      default:
-        cont = 27;//Para valores diferentes dos esperados mostra o primeiro valor dos símbolos
+void verificaBotao(){
+  if(valor > 100 and valor < 380){
+    opcao = 1;    //Botão Alfabeto
+    cont = 0;     //Caso o botao alfabeto seja pressionado cont recebe 1 equivalente a letra "a"
+    Serial.println("OPÇÃO ALFABETO SELECIONADA");
+    //isereValorFirebase("opcao", "a");
+    Firebase.setString(firebaseDado,"opcao", "alf");
+    //isereValorFirebase("caractere", "");
+    Firebase.setString(firebaseDado,"caractere", "");
+  }
+  if(valor > 380 and valor < 700){
+    opcao = 2;   //Botão Número
+    cont = 0;    //Caso o botao alfabeto seja pressionado cont recebe 1 equivalente ao numero "1"
+    Serial.println("OPÇÃO NÚMEROS SELECIONADA");
+    //isereValorFirebase("opcao", "n");
+    Firebase.setString(firebaseDado,"opcao", "num");
+    //isereValorFirebase("caractere", "");
+    Firebase.setString(firebaseDado,"caractere", "");
+  }
+  if(valor > 700 and valor <= 1024){
+    opcao = 3;   //Botão Símbolo
+    cont = 26;   //Caso o botao alfabeto seja pressionado cont recebe 27 equivalente ao símbolo "." ponto.
+    Serial.println("OPÇÃO SÍMBOLOS SELECIONADA");
+    //isereValorFirebase("opcao", "s");
+    Firebase.setString(firebaseDado,"opcao", "sim");
+    //isereValorFirebase("caractere", "");
+    Firebase.setString(firebaseDado,"caractere", "");
+  }
+}
+
+void controleIncDec() {//Controle de incremento e decremento
+  if (debouncer1.fell() or debouncer2.fell()){
+    verificaOpcao();
+    Serial.println("opcao: " + opcao);
+  }
+  if (opcao == 1) {//Opcao Alfabeto
+    if (debouncer1.fell()) {
+      cont += 1;
+      if (cont > 26)
+        cont = 1;
+      Serial.println(letras[cont - 1]);
+      //isereValorFirebase("caractere", String(letras[cont - 1]));
+      Firebase.setString(firebaseDado,"caractere", String(letras[cont - 1]));
+      Firebase.setInt(firebaseDado,"contador", cont);
+      mostraCaractere();   //Mostra o caractere correspondente
+    }
+
+    if (debouncer2.fell()) {
+      cont -= 1;
+      if (cont < 1)
+        cont = 26;
+      Serial.println(letras[cont - 1]);
+      //isereValorFirebase("caractere", String(letras[cont - 1]));
+      Firebase.setString(firebaseDado, "caractere", String(letras[cont - 1]));
+      Firebase.setInt(firebaseDado,"contador", cont);
+      mostraCaractere();   //Mostra o caractere correspondente
+    }
+  }
+
+  if (opcao == 2) {//Opcao Numeros
+    if (debouncer1.fell()) {
+      cont += 1;
+      if (cont > 10)
+        cont = 1;
+      if (cont < 10){
+        Serial.println(cont);
+        //isereValorFirebase("caractere", String(cont));
+        Firebase.setInt(firebaseDado,"contador", cont);
+        Firebase.setString(firebaseDado,"caractere", String(cont));
+      }else{
+        Serial.println('0');
+        //isereValorFirebase("caractere", "0");
+        Firebase.setInt(firebaseDado,"contador", cont);
+        Firebase.setString(firebaseDado,"caractere", "0");
+      }
+      mostraCaractere();   //Mostra o caractere correspondente
+    }
+
+    if (debouncer2.fell()) {
+      cont -= 1;
+      if (cont < 1)
+        cont = 10;
+      if (cont < 10){
+        Serial.println(cont);
+        //isereValorFirebase("caractere", String(cont));
+        Firebase.setInt(firebaseDado,"contador", cont);
+        Firebase.setString(firebaseDado,"caractere", String(cont));
+      }else{
+        Serial.println('0');
+        //isereValorFirebase("caractere", "0");
+        Firebase.setInt(firebaseDado,"contador", cont);
+        Firebase.setString(firebaseDado,"caractere", "0");
+      }
+      mostraCaractere();   //Mostra o caractere correspondente
+    }
+  }
+
+  if (opcao == 3) {//Opcao Simbolos
+    if (debouncer1.fell()) {
+      cont += 1;
+      if (cont > 50)
+        cont = 27;
+      Serial.println(letras[cont - 1]);
+	    gravaSimbolo(letras[cont - 1]);
+      mostraCaractere();   //Mostra o caractere correspondente
+    }
+
+    if (debouncer2.fell()) {
+      cont -= 1;
+      if (cont < 27)
+        cont = 50;
+      Serial.println(letras[cont - 1]);
+	    gravaSimbolo(letras[cont - 1]);
+      mostraCaractere();   //Mostra o caractere correspondente
     }
   }
 }
 
+void gravaSimbolo(char valor){
+  Firebase.setInt(firebaseDado,"contador", cont);
+  switch(valor){
+	case '.':
+		Firebase.setString(firebaseDado,"caractere", "ponto");
+		break;
+	case ',':
+		Firebase.setString(firebaseDado,"caractere", "vírgula");
+		break;
+	case ';':
+		Firebase.setString(firebaseDado,"caractere", "ponto_e_vírgula");
+		break;
+	case ':':
+		Firebase.setString(firebaseDado,"caractere", "dois_pontos");
+		break;
+	case '/':
+		Firebase.setString(firebaseDado,"caractere", "barra");
+		break;
+	case '?':
+		Firebase.setString(firebaseDado,"caractere", "interrogação");
+		break;
+	case '!':
+		Firebase.setString(firebaseDado,"caractere", "exclamação");
+		break;
+	case '@':
+		Firebase.setString(firebaseDado,"caractere", "arroba");
+		break;
+	case '#':
+		Firebase.setString(firebaseDado,"caractere", "cerquilha");
+		break;
+	case '+':
+		Firebase.setString(firebaseDado,"caractere", "mais");
+		break;
+	case '-':
+		Firebase.setString(firebaseDado,"caractere", "menos");
+		break;
+	case '*':
+		Firebase.setString(firebaseDado,"caractere", "asterisco");
+		break;
+	case 'a':
+		Firebase.setString(firebaseDado,"caractere", "abre_aspas");
+		break;
+	case 'f':
+		Firebase.setString(firebaseDado,"caractere", "fecha_aspas");
+		break;
+	case 'p':
+		Firebase.setString(firebaseDado,"caractere", "plicas");
+		break;
+	case '<':
+		Firebase.setString(firebaseDado,"caractere", "menor");
+		break;
+	case '>':
+		Firebase.setString(firebaseDado,"caractere", "maior");
+		break;
+	case '(':
+		Firebase.setString(firebaseDado,"caractere", "abre_parêntese");
+		break;
+	case ')':
+		Firebase.setString(firebaseDado,"caractere", "fecha_parêntese");
+		break;
+	case 'C':
+		Firebase.setString(firebaseDado,"caractere", "capitular");
+		break;
+	case '_':
+		Firebase.setString(firebaseDado,"caractere", "underline");
+		break;
+	case 'E':
+		Firebase.setString(firebaseDado,"caractere", "e_lógico");
+		break;
+	case 'L':
+		Firebase.setString(firebaseDado,"caractere", "letra");
+		break;
+	case 'N':
+		Firebase.setString(firebaseDado,"caractere", "número");
+		break;
+	default:
+		return;
+  }
+}
+void mostraCaractere() {
+  switch (cont) {
+    case 1://A e 1
+      ativacaoPinos(1, 0, 0, 0, 0, 0);//Liga apenas o pino 1
+      break;
+
+    case 2://B e 2
+      ativacaoPinos(1, 1, 0, 0, 0, 0);//Liga apenas o pino 1 e 2
+      break;
+
+    case 3://C e 3
+      ativacaoPinos(1, 0, 0, 1, 0, 0);//Liga apenas o pino 1 e 4
+      break;
+
+    case 4://D e 4
+      ativacaoPinos(1, 0, 0, 1, 1, 0);//Liga apenas o pino 1, 4 e 5
+      break;
+
+    case 5://E e 5
+      ativacaoPinos(1, 0, 0, 0, 1, 0);//Liga apenas o pino 1 e 5
+      break;
+
+    case 6://F e 6
+      ativacaoPinos(1, 1, 0, 1, 0, 0);//Liga apenas o pino 1, 2 e 4
+      break;
+
+    case 7://G e 7
+      ativacaoPinos(1, 1, 0, 1, 1, 0);//Liga apenas o pino 1, 2, 4 e 5
+      break;
+
+    case 8://H e 8
+      ativacaoPinos(1, 1, 0, 0, 1, 0);//Liga apenas o pino 1, 2 e 4
+      break;
+
+    case 9://I e 9
+      ativacaoPinos(0, 1, 0, 1, 0, 0);//Liga apenas o pino 2 e 4
+      break;
+
+    case 10://J e 0
+      ativacaoPinos(0, 1, 0, 1, 1, 0);//Liga apenas o pino 2, 4 e 5
+      break;
+
+    case 11://K
+      ativacaoPinos(1, 0, 1, 0, 0, 0);//Liga apenas o pino 1 e 3
+      break;
+
+    case 12://L
+      ativacaoPinos(1, 1, 1, 0, 0, 0);//Liga apenas o pino 1, 2 e 3
+      break;
+
+    case 13://M
+      ativacaoPinos(1, 0, 1, 1, 0, 0);//Liga apenas o pino 1, 3 e 4
+      break;
+
+    case 14://N
+      ativacaoPinos(1, 0, 1, 1, 1, 0);//Liga apenas o pino 1, 3, 4 e 5
+      break;
+
+    case 15://O
+      ativacaoPinos(1, 0, 1, 0, 1, 0);//Liga apenas o pino 1, 3 e 5
+      break;
+
+    case 16://P
+      ativacaoPinos(1, 1, 1, 1, 0, 0);//Liga apenas o pino 1, 2, 3 e 4
+      break;
+
+    case 17://Q
+      ativacaoPinos(1, 1, 1, 1, 1, 0);//Liga apenas o pino 1, 2, 3, 4 e 5
+      break;
+
+    case 18://R
+      ativacaoPinos(1, 1, 1, 0, 1, 0);//Liga apenas o pino 1, 2, 3 e 5
+      break;
+
+    case 19://S
+      ativacaoPinos(0, 1, 1, 1, 0, 0);//Liga apenas o pino 1 e 4
+      break;
+
+    case 20://T
+      ativacaoPinos(0, 1, 1, 1, 1, 0);//Liga apenas o pino 2, 3, 4 e 5
+      break;
+
+    case 21://U
+      ativacaoPinos(1, 0, 1, 0, 0, 1);//Liga apenas o pino 1, 3 e 6
+      break;
+
+    case 22://V
+      ativacaoPinos(1, 1, 1, 0, 0, 1);//Liga apenas o pino 1, 2, 3 e 6
+      break;
+
+    case 23://W
+      ativacaoPinos(0, 1, 0, 1, 1, 1);//Liga apenas o pino 2, 4, 5 e 6
+      break;
+
+    case 24://X
+      ativacaoPinos(1, 0, 1, 1, 0, 1);//Liga apenas o pino 1, 3, 4 e 6
+      break;
+
+    case 25://Y
+      ativacaoPinos(1, 0, 1, 1, 1, 1);//Liga apenas o pino 1, 3, 4, 5 e 6
+      break;
+
+    case 26://Z
+      ativacaoPinos(1, 0, 1, 0, 1, 1);//Liga apenas o pino 3 e 6
+      break;
+
+    case 27://.
+      ativacaoPinos(0, 1, 0, 0, 1, 1);//Liga apenas o pino 1, 3, 5 e 6
+      break;
+
+    case 28://,
+      ativacaoPinos(0, 1, 0, 0, 0, 0);//Liga apenas o pino 2
+      break;
+
+    case 29://;
+      ativacaoPinos(0, 1, 1, 0, 0, 0);//Liga apenas o pino 2 e 3
+      break;
+
+    case 30://:
+      ativacaoPinos(0, 1, 0, 0, 1, 0);//Liga apenas o pino 2 e 5
+      break;
+
+    case 31:///
+      ativacaoPinos(0, 0, 1, 1, 0, 0);//Liga apenas o pino 3 e 4
+      break;
+
+    case 32://?
+      ativacaoPinos(0, 1, 1, 0, 0, 1);//Liga apenas o pino 2, 3 e 6
+      break;
+
+    case 33://!
+      ativacaoPinos(0, 1, 1, 0, 1, 0);//Liga apenas o pino 2, 3 e 5
+      break;
+
+    case 34://@
+      ativacaoPinos(0, 0, 1, 1, 1, 0);//Liga apenas o pino 3, 4 e 5
+      break;
+
+    case 35://#
+      ativacaoPinos(0, 0, 1, 1, 1, 1);//Liga apenas o pino 3, 4, 5 e 6
+      break;
+
+    case 36://+
+      ativacaoPinos(0, 1, 1, 0, 1, 0);//Liga apenas o pino 2, 3 e 5
+      break;
+
+    case 37://-
+      ativacaoPinos(0, 1, 0, 0, 1, 0);//Liga apenas o pino 2 e 5
+      break;
+
+    case 38://*
+      ativacaoPinos(0, 0, 1, 0, 1, 0);//Liga apenas o pino 3 e 5
+      break;
+
+    case 39://" Abre aspas
+      ativacaoPinos(0, 1, 1, 0, 0, 1);//Liga apenas o pino 2, 3 e 6
+      break;
+
+    case 40://" Fecha aspas
+      ativacaoPinos(0, 0, 1, 0, 1, 1);//Liga apenas o pino 3, 5 e 6
+      break;
+
+    case 41://´ plicas
+      ativacaoPinos(0, 0, 1, 0, 0, 0);//Liga apenas o pino 3
+      break;
+
+    case 42://<
+      ativacaoPinos(1, 1, 0, 0, 0, 1);//Liga apenas o pino 1, 2 e 6
+      break;
+
+    case 43://>
+      ativacaoPinos(0, 0, 1, 1, 1, 0);//Liga apenas o pino 3, 4 e 5
+      break;
+
+    case 44://(
+      ativacaoPinos(0, 1, 1, 0, 1, 1);//Liga apenas o pino 2, 3, 5 e 6
+      break;
+
+    case 45://)
+      ativacaoPinos(0, 1, 1, 0, 1, 1);//Liga apenas o pino 2, 3, 5 e 6
+      break;
+
+    case 46://C capitular
+      ativacaoPinos(0, 0, 0, 0, 0, 1);//Liga apenas o pino 6
+      break;
+
+    case 47://_
+      ativacaoPinos(0, 0, 1, 0, 0, 1);//Liga apenas o pino 3 e 6
+      break;
+
+    case 48://E
+      ativacaoPinos(1, 1, 1, 1, 0, 1);//Liga apenas o pino 1, 2, 3, 4 e 6
+      break;
+
+    case 49://L
+      ativacaoPinos(0, 0, 0, 0, 1, 1);//Liga apenas o pino 5 e 6
+      break;
+
+    case 50://N
+      ativacaoPinos(0, 0, 1, 1, 1, 1);//Liga apenas o pino 3, 4, 5 e 6
+      break;
+  }
+}
+
+void ativacaoPinos(int pino1, int pino2, int pino3, int pino4, int pino5, int pino6) {
+  int estadoPino[] = {pino1, pino2, pino3, pino4, pino5, pino6};
+  for (int i = 0; i < 6; i++) {
+    if (estadoPino[i] == 1)
+      digitalWrite(pino[i], LOW);
+      delay(100);
+      digitalWrite(pino[i], HIGH);
+      delay(100);
+  }
+}
+
+void isereValorFirebase(String campo, String valor) {
+  //Muda o valor do campo no firebase
+  if (Firebase.setString(firebaseDado, campo, valor))
+  {
+    //Success
+    Serial.println("Valor do campo " + campo + " inserido com sucesso");
+  } else {
+    //Falha, obtém a razão do erro no firebaseData
+    Serial.print("Erro no campo " + campo + ", ");
+    Serial.println(firebaseDado.errorReason());
+  }
+}
+
+String lerValorFirebase(String campo) {
+  if (Firebase.get(firebaseDado, campo))
+  {
+    return firebaseDado.stringData();
+  }
+}
