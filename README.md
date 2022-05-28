@@ -9,4 +9,4 @@ Este trabalho teve por objetivo desenvolver uma ferramenta prototípica que auxi
 **Zito Palhano da Fonseca**
 <br/>Orientador
 
-Íntegra: https://revistatecie.crea-pr.org.br/index.php/revista/article/view/785
+Acesse: https://revistatecie.crea-pr.org.br/index.php/revista/article/view/785
